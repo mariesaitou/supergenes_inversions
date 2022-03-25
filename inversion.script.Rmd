@@ -1,0 +1,70 @@
+---
+title: "inversion2022"
+author: "Marie Saitou"
+date: "3/3/2022"
+output: html_document
+---
+
+## Variant and sample filtering from the VCF file
+```{bash,eval=FALSE}
+csvfile=inversionloc.csv
+csvfile=candidateSVloc.csv
+for line in `cat ${csvfile} | grep -v ^#`
+do
+  chr=`echo ${line} | cut -d ',' -f 1`
+  start=`echo ${line} | cut -d ',' -f 2`
+  end=`echo ${line} | cut -d ',' -f 3`
+  up=`echo ${line} | cut -d ',' -f 4`
+  down=`echo ${line} | cut -d ',' -f 5`
+  gene=`echo ${line} | cut -d ',' -f 6`
+
+ tabix -fh /net/cn-1/mnt/SCRATCH/nicolab/Transpose/Aquagenome_deepVariant/vcf/Filter_all_samples_679/filtered_4_40_10_0.7_samples_679/beagle_phased/Atlantic/${chr}_Atlantic_wild_679_LR_phased.gt.vcf.gz ${chr}:${up}-${down} > SR_679_${chr}_${start}_${end}.vcf
+ vcftools --vcf SR_679_${chr}_${start}_${end}.vcf --keep keepsample.txt --recode --out SR_492_${chr}_${start}_${end}
+ vcftools --vcf SR_492_${chr}_${start}_${end}.recode.vcf  --maf 0.05 --max-maf 0.95 --max-alleles 2 --recode --out  SR_492_${chr}_${start}_${end}_small
+ singularity exec /cvmfs/singularity.galaxyproject.org/all/bcftools:1.12--h3f113a9_0 bcftools reheader -s INVrehead.list SR_492_${chr}_${start}_${end}_small.recode.vcf > SR_492_${chr}_${start}_${end}.head.vcf
+ vcftools --vcf SR_492_${chr}_${start}_${end}.head.vcf --extract-FORMAT-info GT --out  ${gene}_${chr}_${start}_${end}_out
+done
+```
+
+
+
+## Make a haplotype plot based on VCF output
+```{r,eval=FALSE}
+
+vcf <- (read.table("467_ssa18_72981470_76073130_out.GT.FORMAT", sep="\t",  header=TRUE,row.names=2))
+library("gplots")
+library(ggplot2); library(reshape2)
+library(dplyr)
+
+## format genotypes 
+vcf2<-(vcf[,-1])
+vcf2[vcf2=="0|0"]<- 0
+vcf2[vcf2=="0|1"]<- 1
+vcf2[vcf2=="1|0"]<- 1
+vcf2[vcf2=="1|1"]<- 2
+
+
+vcf3 <- data.frame(apply(vcf2, 2, function(x) as.numeric(as.character(x))))
+
+vcf2 <- t(vcf3)
+vcf4 <- data.matrix(vcf2)
+colnames(vcf4) <- factor(row.names(vcf))
+
+## subset samples
+color0  <- read.csv("sampleSRinfo.csv", header = T, sep = ",")
+select.sample <- subset(color0,  pop=="Canada" | pop=="LR", select=sample)
+sample<-unlist (select.sample)
+vcf5  <-vcf4[rownames(vcf4) %in% sample, ]
+color1 <-color0[color0$sample %in% sample, ]
+pop1 = as.character(color1$color)
+pop1 <-pop1[]
+
+## generate the figure
+png("SR.Canada.ssa11v2_revision.png", width = 1200, height = 600)
+my_palette <- colorRampPalette(c("#FF005B","#CFE9EE","#1D2E70")) (n=3)
+heatmap.2(vcf5, trace="none", na.color = "black", margins=c(12,8),scale="none", 
+          col = my_palette,density.info="none",dendrogram = c("row"),cexRow=1,cexCol = 1,Colv = F,  lhei=c(0.5, 8), lwid=c(1, 8))
+
+dev.off()
+```
+
